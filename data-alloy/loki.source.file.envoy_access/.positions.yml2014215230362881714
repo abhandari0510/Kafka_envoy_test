@@ -1,0 +1,4 @@
+positions:
+  ? path: /home/akashbhandari/sample-java-app/logs/envoy-pii-detection.log
+    labels: '{job="envoy_pii_detection"}'
+  : "975"

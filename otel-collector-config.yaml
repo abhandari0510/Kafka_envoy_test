@@ -1,0 +1,155 @@
+receivers:
+  filelog/envoy:
+    include:
+      - /home/akashbhandari/sample-java-app/logs/envoy-access.log
+    start_at: beginning
+    operators:
+      - type: json_parser
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+  transform/envoy_logs:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - set(attributes["status"], Int(attributes["response_code"])) where attributes["response_code"] != nil
+          - set(attributes["duration_seconds"], Double(attributes["duration"]) / 1000.0) where attributes["duration"] != nil
+          - set(attributes["upstream_service_time_seconds"], Double(attributes["upstream_service_time"]) / 1000.0) where attributes["upstream_service_time"] != nil
+          - set(attributes["request_body_size"], Int(attributes["bytes_received"])) where attributes["bytes_received"] != nil
+          - set(attributes["response_body_size"], Int(attributes["bytes_sent"])) where attributes["bytes_sent"] != nil
+          - set(attributes["source_service"], "ui-service") where IsMatch(attributes["path"], "^/api/credit")
+          - set(attributes["dest_service"], "input-service") where IsMatch(attributes["path"], "^/api/credit")
+          - set(attributes["source_service"], "input-service") where IsMatch(attributes["path"], "^/policy")
+          - set(attributes["dest_service"], "policy-service") where IsMatch(attributes["path"], "^/policy")
+          - set(attributes["source_service"], "client") where not IsMatch(attributes["path"], "^/api/credit|^/policy")
+          - set(attributes["dest_service"], "ui-service") where not IsMatch(attributes["path"], "^/api/credit|^/policy")
+          - set(attributes["pii_name"], 0)
+          - set(attributes["pii_phone_number"], 0)
+          - set(attributes["pii_aadhar_number"], 0)
+          - set(attributes["pii_aadhar_suspicious"], 0)
+          - set(attributes["pii_pan_number"], 0)
+          - set(attributes["pii_credit_card_number"], 0)
+          - set(attributes["pii_credit_card_expiry"], 0)
+          - set(attributes["pii_cvc"], 0)
+          - set(attributes["pii_response_payload_matches"], 0)
+          - set(attributes["pii_name"], Int(attributes["request_pii_name_count"])) where attributes["request_pii_name_count"] != nil
+          - set(attributes["pii_phone_number"], Int(attributes["request_pii_phone_count"])) where attributes["request_pii_phone_count"] != nil
+          - set(attributes["pii_aadhar_number"], Int(attributes["request_pii_aadhaar_total_count"])) where attributes["request_pii_aadhaar_total_count"] != nil
+          - set(attributes["pii_aadhar_suspicious"], Int(attributes["request_pii_aadhaar_suspicious_count"])) where attributes["request_pii_aadhaar_suspicious_count"] != nil
+          - set(attributes["pii_pan_number"], Int(attributes["request_pii_pan_count"])) where attributes["request_pii_pan_count"] != nil
+          - set(attributes["pii_credit_card_number"], Int(attributes["request_pii_credit_card_count"])) where attributes["request_pii_credit_card_count"] != nil
+          - set(attributes["pii_credit_card_expiry"], Int(attributes["request_pii_credit_card_expiry_count"])) where attributes["request_pii_credit_card_expiry_count"] != nil
+          - set(attributes["pii_cvc"], Int(attributes["request_pii_cvc_count"])) where attributes["request_pii_cvc_count"] != nil
+          - set(attributes["pii_response_payload_matches"], Int(attributes["response_pii_total_count"])) where attributes["response_pii_total_count"] != nil
+
+connectors:
+  signaltometrics/envoy:
+    logs:
+      - name: http_requests_total
+        description: Total HTTP requests seen in Envoy access logs
+        attributes:
+          - key: method
+          - key: path
+          - key: protocol
+          - key: response_flags
+          - key: upstream_host
+        sum:
+          value: "1"
+      - name: http_request_duration_seconds
+        description: Request duration in seconds derived from Envoy access logs
+        attributes:
+          - key: method
+          - key: path
+          - key: upstream_host
+        histogram:
+          count: "1"
+          value: Double(attributes["duration_seconds"])
+          explicit:
+            buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+      - name: pii_name_transferred_total
+        description: Name-like matches counted in Envoy request payloads
+        attributes:
+          - key: source_service
+          - key: dest_service
+        sum:
+          value: Int(attributes["pii_name"])
+      - name: pii_phone_number_transferred_total
+        description: Phone number matches counted in Envoy request payloads
+        attributes:
+          - key: source_service
+          - key: dest_service
+        sum:
+          value: Int(attributes["pii_phone_number"])
+      - name: pii_aadhar_number_transferred_total
+        description: Aadhaar-like matches counted in Envoy request payloads
+        attributes:
+          - key: source_service
+          - key: dest_service
+        sum:
+          value: Int(attributes["pii_aadhar_number"])
+      - name: pii_aadhar_suspicious_transferred_total
+        description: Suspicious Aadhaar-length near matches counted in Envoy request payloads
+        attributes:
+          - key: source_service
+          - key: dest_service
+        sum:
+          value: Int(attributes["pii_aadhar_suspicious"])
+      - name: pii_pan_number_transferred_total
+        description: PAN matches counted in Envoy request payloads
+        attributes:
+          - key: source_service
+          - key: dest_service
+        sum:
+          value: Int(attributes["pii_pan_number"])
+      - name: pii_credit_card_number_transferred_total
+        description: Luhn-valid credit card matches counted in Envoy request payloads
+        attributes:
+          - key: source_service
+          - key: dest_service
+        sum:
+          value: Int(attributes["pii_credit_card_number"])
+      - name: pii_credit_card_expiry_transferred_total
+        description: Credit card expiry matches counted in Envoy request payloads
+        attributes:
+          - key: source_service
+          - key: dest_service
+        sum:
+          value: Int(attributes["pii_credit_card_expiry"])
+      - name: pii_cvc_transferred_total
+        description: CVC-like matches counted in Envoy request payloads when card context is present
+        attributes:
+          - key: source_service
+          - key: dest_service
+        sum:
+          value: Int(attributes["pii_cvc"])
+      - name: pii_response_payload_matches_total
+        description: All PII-like matches counted in Envoy response payloads
+        attributes:
+          - key: source_service
+          - key: dest_service
+        sum:
+          value: Int(attributes["pii_response_payload_matches"])
+
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:9096
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    logs:
+      receivers: [filelog/envoy]
+      processors: [memory_limiter, transform/envoy_logs, batch]
+      exporters: [debug, signaltometrics/envoy]
+    metrics:
+      receivers: [signaltometrics/envoy]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus, debug]
